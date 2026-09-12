@@ -1,0 +1,179 @@
+id,name,parent,fullname,isinactive,subsidiary,lastmodifieddate
+1,Alloys,,Alloys,F,"2, 5, 32, 65, 82",3/18/2026
+89,Amalgam,1,Alloys : Amalgam,F,"2, 5, 32, 65, 82",3/18/2026
+2,Anesthetics,,Anesthetics,F,"2, 5, 32, 65, 82",3/18/2026
+27,Injectables,2,Anesthetics : Injectables,F,"2, 5, 32, 65, 82",3/18/2026
+28,Needles,2,Anesthetics : Needles,F,"2, 5, 32, 65, 82",3/18/2026
+111,Sutures,2,Anesthetics : Sutures,F,"2, 5, 32, 65, 82",3/18/2026
+29,Topical,2,Anesthetics : Topical,F,"2, 5, 32, 65, 82",3/18/2026
+24,Brokerage,,Brokerage,F,"2, 5, 32, 65, 82",3/18/2026
+3,Burs,,Burs,F,"2, 5, 32, 65, 82",3/18/2026
+94,Accessories,3,Burs : Accessories,F,"2, 5, 32, 65, 82",3/18/2026
+90,Carbide,3,Burs : Carbide,F,"2, 5, 32, 65, 82",3/18/2026
+93,Diamonds,3,Burs : Diamonds,F,"2, 5, 32, 65, 82",3/18/2026
+91,Finishing,3,Burs : Finishing,F,"2, 5, 32, 65, 82",3/18/2026
+92,Latch,3,Burs : Latch,F,"2, 5, 32, 65, 82",3/18/2026
+169,CPU & Laptops,,CPU & Laptops,F,"1, 48, 65, 82",3/18/2026
+181,Cables & Adapters,,Cables & Adapters,F,"1, 48, 65, 82",3/18/2026
+5,Cements & Liners,,Cements & Liners,F,"2, 5, 32, 65, 82",3/18/2026
+131,Cavity & Liners,5,Cements & Liners : Cavity & Liners,F,"2, 5, 32, 65, 82",3/18/2026
+44,Cements,5,Cements & Liners : Cements,F,"2, 5, 32, 65, 82",3/18/2026
+43,Temporary Filling Materials,5,Cements & Liners : Temporary Filling Materials,F,"2, 5, 32, 65, 82",3/18/2026
+4,Crowns & Bridges,,Crowns & Bridges,F,"2, 5, 32, 65, 82",3/18/2026
+59,Crown,4,Crowns & Bridges : Crown,F,"2, 5, 32, 65, 82",3/18/2026
+60,Retraction Materials,4,Crowns & Bridges : Retraction Materials,F,"2, 5, 32, 65, 82",3/18/2026
+61,TemporaryCrowns&BridgesAcrylics,4,Crowns & Bridges : TemporaryCrowns&BridgesAcrylics,F,"2, 5, 32, 65, 82",3/18/2026
+21,Discount,,Discount,F,"2, 5, 32, 65, 82",3/18/2026
+23,Duty,,Duty,F,"2, 5, 32, 65, 82",3/18/2026
+161,E-Commerce,,E-Commerce,F,"2, 5, 32, 65, 82",3/18/2026
+163,Gift & Souvenir,161,E-Commerce : Gift & Souvenir,F,"2, 5, 32, 65, 82",3/18/2026
+164,Household,161,E-Commerce : Household,F,"2, 5, 32, 65, 82",3/18/2026
+162,Phone Accessories,161,E-Commerce : Phone Accessories,F,"2, 5, 32, 65, 82",3/18/2026
+6,Endodontics,,Endodontics,F,"2, 5, 32, 65, 82",3/18/2026
+160,Absorbent Points,6,Endodontics : Absorbent Points,F,"2, 5, 32, 65, 82",3/18/2026
+45,Barbed Broaches,6,Endodontics : Barbed Broaches,F,"2, 5, 32, 65, 82",3/18/2026
+159,Drills & Reamers,6,Endodontics : Drills & Reamers,F,"2, 5, 32, 65, 82",3/18/2026
+47,Endo Accessories,6,Endodontics : Endo Accessories,F,"2, 5, 32, 65, 82",3/18/2026
+46,Endo File,6,Endodontics : Endo File,F,"2, 5, 32, 65, 82",3/18/2026
+50,Rotary Endo,6,Endodontics : Rotary Endo,F,"2, 5, 32, 65, 82",3/18/2026
+49,Rubber Dam Accessories,6,Endodontics : Rubber Dam Accessories,F,"2, 5, 32, 65, 82",3/18/2026
+48,Sealers,6,Endodontics : Sealers,F,"2, 5, 32, 65, 82",3/18/2026
+7,Equipment,,Equipment,F,"2, 5, 32, 65, 82",3/18/2026
+98,Autoclave,7,Equipment : Autoclave,F,"2, 5, 32, 65, 82",3/18/2026
+101,Chairs & Stools,7,Equipment : Chairs & Stools,F,"2, 5, 32, 65, 82",3/18/2026
+104,Endo,7,Equipment : Endo,F,"2, 5, 32, 65, 82",3/18/2026
+112,Equipment Accessories,7,Equipment : Equipment Accessories,F,"2, 5, 32, 65, 82",3/18/2026
+142,Equipment Parts,7,Equipment : Equipment Parts,F,"2, 5, 32, 65, 82",3/18/2026
+125,Equipment Repair,7,Equipment : Equipment Repair,F,"2, 5, 32, 65, 82",3/18/2026
+99,Handpiece,7,Equipment : Handpiece,F,"2, 5, 32, 65, 82",3/18/2026
+158,Parts,7,Equipment : Parts,F,"2, 5, 32, 65, 82",3/18/2026
+147,Sensors,7,Equipment : Sensors,F,"2, 5, 32, 65, 82",3/18/2026
+102,Small Equipment,7,Equipment : Small Equipment,F,"2, 5, 32, 65, 82",3/18/2026
+103,Utility Rooms,7,Equipment : Utility Rooms,F,"2, 5, 32, 65, 82",3/18/2026
+100,X-Ray Equipment,7,Equipment : X-Ray Equipment,F,"2, 5, 32, 65, 82",3/18/2026
+10,Gift,,Gift,F,"2, 5, 32, 65, 82",3/18/2026
+110,Gift Card,10,Gift : Gift Card,F,"2, 5, 32, 65, 82",3/18/2026
+113,Giveaway,10,Gift : Giveaway,F,"2, 5, 32, 65, 82",3/18/2026
+170,Hard Drive,,Hard Drive,F,"1, 48, 65, 82",3/18/2026
+171,Head Set and Microphones,,Head Set and Microphones,F,"1, 48, 65, 82",3/18/2026
+168,I.T. Support Fee,,I.T. Support Fee,F,"1, 48, 65, 82",3/18/2026
+155,IV Products,,IV Products,F,"2, 5, 32, 65, 82",3/18/2026
+156,IV Catheter,155,IV Products : IV Catheter,F,"2, 5, 32, 65, 82",3/18/2026
+12,Impression Materials,,Impression Materials,F,"2, 5, 32, 65, 82",3/18/2026
+58,Accessories,12,Impression Materials : Accessories,F,"2, 5, 32, 65, 82",3/18/2026
+51,Alginates,12,Impression Materials : Alginates,F,"2, 5, 32, 65, 82",3/18/2026
+52,Bite Registration,12,Impression Materials : Bite Registration,F,"2, 5, 32, 65, 82",3/18/2026
+54,Mixing Tips,12,Impression Materials : Mixing Tips,F,"2, 5, 32, 65, 82",3/18/2026
+145,Polyether,12,Impression Materials : Polyether,F,"2, 5, 32, 65, 82",3/18/2026
+53,Post & Pins,12,Impression Materials : Post & Pins,F,"2, 5, 32, 65, 82",3/18/2026
+116,Rubber Base,12,Impression Materials : Rubber Base,F,"2, 5, 32, 65, 82",3/18/2026
+148,Soft Liners,12,Impression Materials : Soft Liners,F,"2, 5, 32, 65, 82",3/18/2026
+157,Syringes,12,Impression Materials : Syringes,F,"2, 5, 32, 65, 82",3/18/2026
+56,Tray Adhesive,12,Impression Materials : Tray Adhesive,F,"2, 5, 32, 65, 82",3/18/2026
+55,Trays,12,Impression Materials : Trays,F,"2, 5, 32, 65, 82",3/18/2026
+57,VPS,12,Impression Materials : VPS,F,"2, 5, 32, 65, 82",3/18/2026
+8,Inbound Freight,,Inbound Freight,F,"2, 5, 32, 65, 82",3/18/2026
+11,Infection Control,,Infection Control,F,"2, 5, 32, 41, 65, 82",3/18/2026
+64,Barriers & Covers,11,Infection Control : Barriers & Covers,F,"2, 5, 32, 65, 82",3/18/2026
+66,Dental Disposable,11,Infection Control : Dental Disposable,F,"2, 5, 32, 65, 82",3/18/2026
+115,Evacuation Cleaners,11,Infection Control : Evacuation Cleaners,F,"2, 5, 32, 65, 82",3/18/2026
+62,Gloves,11,Infection Control : Gloves,F,"2, 5, 32, 65, 82",3/18/2026
+65,Hand Soaps,11,Infection Control : Hand Soaps,F,"2, 5, 32, 65, 82",3/18/2026
+63,Mask,11,Infection Control : Mask,F,"2, 5, 32, 41, 65, 82",3/18/2026
+149,Sterilants,11,Infection Control : Sterilants,F,"2, 5, 32, 65, 82",3/18/2026
+67,Sterilization Products,11,Infection Control : Sterilization Products,F,"2, 5, 32, 65, 82",3/18/2026
+36,Surface Disinfectant,11,Infection Control : Surface Disinfectant,F,"2, 5, 32, 65, 82",3/18/2026
+150,Tray Cover,11,Infection Control : Tray Cover,F,"2, 5, 32, 65, 82",3/18/2026
+68,Ultrasonic Cleaners,11,Infection Control : Ultrasonic Cleaners,F,"2, 5, 32, 65, 82",3/18/2026
+13,Instruments,,Instruments,F,"2, 5, 32, 65, 82",3/18/2026
+130,Cassette & Accessories,13,Instruments : Cassette & Accessories,F,"2, 5, 32, 65, 82",3/18/2026
+117,Diagnostic,13,Instruments : Diagnostic,F,"2, 5, 32, 65, 82",3/18/2026
+135,Endo Instruments,13,Instruments : Endo Instruments,F,"2, 5, 32, 65, 82",3/18/2026
+137,Forceps,13,Instruments : Forceps,F,"2, 5, 32, 65, 82",3/18/2026
+139,Instrument Care,13,Instruments : Instrument Care,F,"2, 5, 32, 65, 82",3/18/2026
+105,Ortho,13,Instruments : Ortho,F,"2, 5, 32, 65, 82",3/18/2026
+143,Periodontal,13,Instruments : Periodontal,F,"2, 5, 32, 65, 82",3/18/2026
+106,Surgical,13,Instruments : Surgical,F,"2, 5, 32, 65, 82",3/18/2026
+25,Interest Charges,,Interest Charges,F,"2, 5, 32, 65, 82",3/18/2026
+172,Keyboard and Mouse,,Keyboard and Mouse,F,"1, 48, 65, 82",3/18/2026
+121,Lab,,Lab,F,"2, 5, 32, 65, 82",3/18/2026
+129,Baseplate,121,Lab : Baseplate,F,"2, 5, 32, 65, 82",3/18/2026
+140,Labstone,121,Lab : Labstone,F,"2, 5, 32, 65, 82",3/18/2026
+154,Miscellaneous Lab,121,Lab : Miscellaneous Lab,F,"2, 5, 32, 65, 82",3/18/2026
+122,Thermo Foaming Material,121,Lab : Thermo Foaming Material,F,"2, 5, 32, 65, 82",3/18/2026
+20,Loaners,,Loaners,F,"2, 5, 32, 65, 82",3/18/2026
+30,Matrix Systems,,Matrix Systems,F,"2, 5, 32, 65, 82",3/18/2026
+32,Matrix Bands,30,Matrix Systems : Matrix Bands,F,"2, 5, 32, 65, 82",3/18/2026
+141,Matrix Materials,30,Matrix Systems : Matrix Materials,F,"2, 5, 32, 65, 82",3/18/2026
+31,Ring & Accessories,30,Matrix Systems : Ring & Accessories,F,"2, 5, 32, 65, 82",3/18/2026
+33,Systems,30,Matrix Systems : Systems,F,"2, 5, 32, 65, 82",3/18/2026
+14,Medical Supplies,,Medical Supplies,F,"2, 5, 32, 65, 82",3/18/2026
+173,Memory,,Memory,F,"1, 48, 65, 82",3/18/2026
+174,Monitor,,Monitor,F,"1, 48, 65, 82",3/18/2026
+175,Motherboard,,Motherboard,F,"1, 48, 65, 82",3/18/2026
+176,Networking,,Networking,F,"1, 48, 65, 82",3/18/2026
+95,Office Supplies,,Office Supplies,F,"2, 5, 32, 65, 82",3/18/2026
+97,Scrub,95,Office Supplies : Scrub,F,"2, 5, 32, 65, 82",3/18/2026
+96,Toys & Stickers,95,Office Supplies : Toys & Stickers,F,"2, 5, 32, 65, 82",3/18/2026
+15,Orthodontics,,Orthodontics,F,"2, 5, 32, 65, 82",3/18/2026
+69,Archwires,15,Orthodontics : Archwires,F,"2, 5, 32, 65, 82",3/18/2026
+70,Band & Attachments,15,Orthodontics : Band & Attachments,F,"2, 5, 32, 65, 82",3/18/2026
+71,Brackets,15,Orthodontics : Brackets,F,"2, 5, 32, 65, 82",3/18/2026
+72,Ortho Cements,15,Orthodontics : Ortho Cements,F,"2, 5, 32, 65, 82",3/18/2026
+107,Other,,Other,F,"2, 5, 32, 65, 82",3/18/2026
+134,Emergency Products,107,Other : Emergency Products,F,"2, 5, 32, 65, 82",3/18/2026
+136,Eye Wear & Accessories,107,Other : Eye Wear & Accessories,F,"2, 5, 32, 65, 82",3/18/2026
+128,Implant,107,Other : Implant,F,"2, 5, 32, 65, 82",3/18/2026
+108,Miscellaneous,107,Other : Miscellaneous,F,"2, 5, 32, 65, 82",3/18/2026
+109,Warehouse Supplies,107,Other : Warehouse Supplies,F,"2, 5, 32, 65, 82",3/18/2026
+151,Waste Management,107,Other : Waste Management,F,"2, 5, 32, 65, 82",3/18/2026
+180,Other Laptop Accessories,,Other Laptop Accessories,F,"1, 48, 65, 82",3/18/2026
+179,Other PC Accessories,,Other PC Accessories,F,"1, 48, 65, 82",3/18/2026
+9,Outbound Freight,,Outbound Freight,F,"2, 5, 32, 65, 82",3/18/2026
+16,Preventatives,,Preventatives,F,"2, 5, 32, 65, 82",3/18/2026
+75,Bibs,16,Preventatives : Bibs,F,"2, 5, 32, 65, 82",3/18/2026
+73,Cotton Roll,16,Preventatives : Cotton Roll,F,"2, 5, 32, 65, 82",3/18/2026
+74,Cotton Tip,16,Preventatives : Cotton Tip,F,"2, 5, 32, 65, 82",3/18/2026
+77,Dental Cups,16,Preventatives : Dental Cups,F,"2, 5, 32, 65, 82",3/18/2026
+133,Disclosing Products,16,Preventatives : Disclosing Products,F,"2, 5, 32, 65, 82",3/18/2026
+120,Dye,16,Preventatives : Dye,F,"2, 5, 32, 65, 82",3/18/2026
+78,Floss,16,Preventatives : Floss,F,"2, 5, 32, 65, 82",3/18/2026
+79,Fluoride Rinse,16,Preventatives : Fluoride Rinse,F,"2, 5, 32, 65, 82",3/18/2026
+80,Fluoride Trays,16,Preventatives : Fluoride Trays,F,"2, 5, 32, 65, 82",3/18/2026
+76,Gauze,16,Preventatives : Gauze,F,"2, 5, 32, 65, 82",3/18/2026
+81,Hand Towels & Tissue,16,Preventatives : Hand Towels & Tissue,F,"2, 5, 32, 65, 82",3/18/2026
+82,Mouthwash,16,Preventatives : Mouthwash,F,"2, 5, 32, 65, 82",3/18/2026
+144,Pit & Fissure,16,Preventatives : Pit & Fissure,F,"2, 5, 32, 65, 82",3/18/2026
+146,Preventatives Miscellaneous,16,Preventatives : Preventatives Miscellaneous,F,"2, 5, 32, 65, 82",3/18/2026
+83,Prophy,16,Preventatives : Prophy,F,"2, 5, 32, 65, 82",3/18/2026
+118,Saliva Ejectors,16,Preventatives : Saliva Ejectors,F,"2, 5, 32, 65, 82",3/18/2026
+124,Sealants,16,Preventatives : Sealants,F,"2, 5, 32, 65, 82",3/18/2026
+84,Toothbrush,16,Preventatives : Toothbrush,F,"2, 5, 32, 65, 82",3/18/2026
+119,Toothpaste,16,Preventatives : Toothpaste,F,"2, 5, 32, 65, 82",3/18/2026
+177,Printer & Scanner,,Printer & Scanner,F,"1, 48, 65, 82",3/18/2026
+165,Respiratory & Anaesthesia,,Respiratory & Anaesthesia,F,"2, 5, 32, 65, 82",3/18/2026
+17,Restoratives,,Restoratives,F,"2, 5, 32, 65, 82",3/18/2026
+39,Accessories,17,Restoratives : Accessories,F,"2, 5, 32, 65, 82",3/18/2026
+35,Articulating Paper,17,Restoratives : Articulating Paper,F,"2, 5, 32, 65, 82",3/18/2026
+38,Bleaching,17,Restoratives : Bleaching,F,"2, 5, 32, 65, 82",3/18/2026
+37,Bonds,17,Restoratives : Bonds,F,"2, 5, 32, 65, 82",3/18/2026
+34,Composites,17,Restoratives : Composites,F,"2, 5, 32, 65, 82",3/18/2026
+132,Desensitizer,17,Restoratives : Desensitizer,F,"2, 5, 32, 65, 82",3/18/2026
+40,Etchants,17,Restoratives : Etchants,F,"2, 5, 32, 65, 82",3/18/2026
+41,Flowable,17,Restoratives : Flowable,F,"2, 5, 32, 65, 82",3/18/2026
+138,Glass Ionomer,17,Restoratives : Glass Ionomer,F,"2, 5, 32, 65, 82",3/18/2026
+42,Polishing & Finishing,17,Restoratives : Polishing & Finishing,F,"2, 5, 32, 65, 82",3/18/2026
+26,Samples,,Samples,F,"2, 5, 32, 65, 82",3/18/2026
+18,Service Charge,,Service Charge,F,"2, 5, 32, 65, 82",3/18/2026
+166,Smiles First Academy Course,,Smiles First Academy Course,F,"1, 11, 65, 82",3/18/2026
+167,Smiles First Academy Venue Rental,,Smiles First Academy Venue Rental,F,"1, 11, 65, 82",3/18/2026
+178,Spearkers,,Spearkers,F,"1, 48, 65, 82",3/18/2026
+19,Specialty Items,,Specialty Items,F,"2, 5, 32, 65, 82",3/18/2026
+22,Stuck On You,,Stuck On You,F,"2, 5, 32, 65, 82",3/18/2026
+126,Whitening,,Whitening,F,"2, 5, 32, 65, 82",3/18/2026
+127,Home Kit,126,Whitening : Home Kit,F,"2, 5, 32, 65, 82",3/18/2026
+152,Office Kit,126,Whitening : Office Kit,F,"2, 5, 32, 65, 82",3/18/2026
+85,X-Ray,,X-Ray,F,"2, 5, 32, 65, 82",3/18/2026
+88,Chemicals,85,X-Ray : Chemicals,F,"2, 5, 32, 65, 82",3/18/2026
+86,Films,85,X-Ray : Films,F,"2, 5, 32, 65, 82",3/18/2026
+87,Xray & Digital Accessories,85,X-Ray : Xray & Digital Accessories,F,"2, 5, 32, 65, 82",3/18/2026

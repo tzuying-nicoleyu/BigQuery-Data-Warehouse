@@ -1,0 +1,187 @@
+NETSUITE -> BIGQUERY LOADING STRATEGY
+======================================
+Project: clean-pilot-456915-t0   Dataset: NetSuite
+Source: pull_data_by_sql(query=q, return_df=True) (extract_from_netsuite module, auth already handled)
+
+GENERAL CONVENTIONS (apply to every table unless noted otherwise)
+-------------------------------------------------------------------
+- Every table gets a "_loaded_at" TIMESTAMP (UTC) column, stamped at load time, to track load freshness
+  separately from NetSuite's own lastmodifieddate.
+- NetSuite booleans come back as "T"/"F" strings -> mapped to Python True/False.
+- Column names in the response are ALWAYS lowercased, regardless of how they're cased in the SELECT
+  (e.g. "autoLeadTime" comes back as "autoleadtime"). Cast/schema code must reference the lowercase form.
+- Joinable/reference fields (parent, class, mainaddress, purchaseunit, etc.) return the raw internal ID,
+  not the name, unless wrapped in BUILTIN.DF(...) or explicitly joined.
+- "subsidiary" can be a multi-value comma-separated string of IDs (e.g. "2, 5, 32") - kept as STRING,
+  not modeled as a clean FK.
+- lastmodifieddate (and similar NetSuite date fields) are date-only strings (M/D/YYYY) -> cast to
+  BigQuery DATE (via .dt.date), not TIMESTAMP, to avoid implying false time precision.
+- Avoid BigQuery NUMERIC for cost/price columns loaded via load_table_from_dataframe - repeatedly hit
+  pyarrow errors (byte-length mismatch, then "rescaling would cause data loss"). Use FLOAT instead
+  unless a specific downstream need requires exact decimal precision.
+- pyarrow must be installed in the same .venv as the notebook kernel, and the kernel must be restarted
+  after installing it (google-cloud-bigquery caches a module-level pyarrow-is-None check at import time).
+- NetSuite SuiteQL "OFFSET n ROWS FETCH NEXT m ROWS ONLY" pagination is NOT safe for deep pagination on
+  large tables: past some internal offset ceiling (confirmed well under 1.265M on this account, exact
+  threshold unknown), NetSuite silently WRAPS AROUND and re-returns rows from the beginning instead of
+  returning fewer/no rows. It does not error - it just quietly repeats data, so a naive loop that stops
+  on "empty result" or "fewer rows than requested" will never terminate and will re-pull duplicate data
+  forever. Use KEYSET (cursor) pagination instead for any large table: "WHERE id > :last_seen_id ORDER
+  BY id FETCH NEXT n ROWS ONLY", tracking last_seen_id as the max id of the previous page. This never
+  asks for a deep offset, so it never hits the wraparound ceiling, regardless of table depth.
+- Reminder: "id" (and similar fields) come back from NetSuite as STRINGS, not numbers. Do not use
+  pandas .is_monotonic_increasing / sort comparisons directly on these columns - "10000" < "9999"
+  lexicographically even though 10000 > 9999 numerically. Cast to a numeric dtype first.
+
+TABLE: classification
+-------------------------------------------------------------------
+Status: LOADED (178 rows)
+Strategy: Full pull, WRITE_TRUNCATE, CREATE_IF_NEEDED. No partitioning (small reference table).
+Reasoning: small + low change frequency; full truncate/reload also auto-handles deletes.
+Columns: id, name, parent, fullname, isinactive, subsidiary, lastmodifieddate, _loaded_at
+
+TABLE: subsidiary
+-------------------------------------------------------------------
+Status: LOADED (70 rows)
+Strategy: Full pull, WRITE_TRUNCATE, CREATE_IF_NEEDED. No partitioning.
+Columns: id, name, fullname, parent, legalname, custrecordcustom_practice_code, isinactive,
+         dropdownstate, mainaddress, mainaddress_text (via BUILTIN.DF), lastmodifieddate, _loaded_at
+Notes: mainaddress_text may contain embedded \r\n / \n line breaks - left as-is (not normalized).
+
+TABLE: item
+-------------------------------------------------------------------
+Status: LOADED (34,604 rows)
+Strategy: Full pull, WRITE_TRUNCATE, CREATE_IF_NEEDED. No partitioning.
+Reasoning: used generic "item" table (union of ALL item types) instead of "inventoryitem" subtype,
+           because transactionline can reference any item type, not just inventory-tracked ones.
+Columns: id, fullname, itemtype, upccode, mpn, displayname, vendorname, purchaseunit, parent, class,
+         subsidiary, custitemcustitem_dnd_brand, manufacturer, averagecost, cost, lastpurchaseprice,
+         costingmethoddisplay, autoleadtime, autoreorderpoint, autopreferredstocklevel,
+         lastmodifieddate, _loaded_at
+Notes: averagecost/cost/lastpurchaseprice are FLOAT (not NUMERIC - see general conventions).
+       Only tracking CURRENT price/cost, no history (explicit decision - no snapshot table needed).
+       "class" is the FK into classification.id.
+
+TABLE: aggregateItemLocation
+-------------------------------------------------------------------
+Status: SCHEMA/LOAD CODE WRITTEN, not yet run. 348,465 rows total (checked live).
+Purpose: per-location stock/reorder metrics. NOT available on inventoryitem directly - lives in
+         this separate table because stock is tracked per-location.
+Strategy: Full pull, WRITE_TRUNCATE, CREATE_IF_NEEDED. No partitioning (current-snapshot table,
+          not a time series - similar to item/customer, just larger). Paginate extraction with
+          ORDER BY item, location (no single "id" column - item+location is the natural composite
+          key), accumulate all pages, single load job.
+Columns: item, location, quantityavailable, quantityonhand, quantityintransit, quantitycommitted,
+         quantitybackordered, quantityonorder, averagecostmli, lastpurchasepricemli,
+         onhandvaluemli, reorderpoint, safetystocklevel, preferredstocklevel, leadtime,
+         lastquantityavailablechange, lastmodifieddate, _loaded_at
+Notes: quantity/cost fields cast to FLOAT (not NUMERIC/INTEGER - quantities can be fractional
+       depending on unit of measure). lastquantityavailablechange and lastmodifieddate are
+       date-only despite the name - cast to DATE, not TIMESTAMP (same as every other NetSuite
+       date field in this pipeline). All the numeric fields come back null together (not 0) for
+       item+location combos where the item isn't actually stocked at that location.
+
+TABLE: customer
+-------------------------------------------------------------------
+Status: LOADED (29,518 rows)
+Strategy: Full pull, WRITE_TRUNCATE, CREATE_IF_NEEDED. No partitioning.
+Reasoning: used "customer" (subtype-specific) instead of generic "entity" table (union of
+           customers/vendors/employees/etc.) since sales analysis only needs customers.
+           Confirmed transaction.entity joins directly to customer.id.
+Columns: id, fullname, category, currency, email, entityid, entitystatus, isinactive, entitytitle,
+         datecreated, lastmodifieddate, _loaded_at
+Notes: category/currency/entitystatus are unjoined reference IDs (not names).
+
+TABLE: transaction
+-------------------------------------------------------------------
+Status: IN PROGRESS - one-time backfill code written and fixed, not yet successfully completed.
+Scale: ~1.26M rows total, growing continuously. Different strategy from the reference tables above.
+
+Columns: id, tranid, transactionnumber, status, recordType, entity, employee, tranDate, createdDate,
+         closeDate, lastmodifieddate, _loaded_at
+Notes on columns:
+  - tranid is NULL for several transaction types (Check, VendPymt, CardChrg, CardRfnd, VendBill,
+    VendCred, CustRfnd) - these don't use NetSuite's generic document-number field.
+  - transactionnumber is more reliably populated (e.g. "CHECK70644") even when tranid is null -
+    use it as the fallback human-readable reference.
+  - internal id (id) is the only universal identifier across all transaction types; also the only
+    reliable way to look a record up directly in the NetSuite UI when tranid is null
+    (URL pattern: https://<account>.app.netsuite.com/app/accounting/transactions/<type>.nl?id=<id>).
+  - entity: integer, nullable. Generic counterparty pointer, null for types with no counterparty
+    (e.g. journal entries). Confirmed transaction.entity joins directly to customer.id for
+    salesorder-type transactions; for other transaction types it may point to a vendor/other
+    entity subtype instead (no vendor table loaded in this pipeline yet).
+  - employee: integer, nullable. Reference to an employee record - no employee table loaded in
+    this pipeline yet, so this stays an unjoined ID for now.
+
+STRATEGY - three separate pieces:
+
+1) ONE-TIME HISTORICAL BACKFILL (backfill_transaction() function)
+   - Paginate from NetSuite via KEYSET pagination: "WHERE id > :last_id ORDER BY id FETCH NEXT
+     <chunk_size> ROWS ONLY" (chunk_size=5000), tracking last_id = max(id) of the previous page
+     (cast to int64 first - id comes back as a string). Loop until a page returns fewer rows than
+     chunk_size, or an empty page.
+   - Originally implemented with "OFFSET n ROWS FETCH NEXT ... ROWS ONLY" instead - switched away
+     from this after discovering NetSuite silently wraps OFFSET around past some internal ceiling
+     (see general conventions above) which caused the backfill to loop indefinitely re-pulling
+     duplicate data from the beginning of the table without ever detecting completion.
+   - Accumulate ALL pages into one combined DataFrame (pd.concat) - do NOT load each page to
+     BigQuery separately. Do ONE single load_table_from_dataframe call for the whole backfill.
+     Reason: hit BigQuery's "partition modifications per column-partitioned table per day" quota
+     (documented ~5,000/day) when doing per-chunk loads, because id-ordered chunks scatter across
+     many different date partitions - each small load job touched a huge number of partitions,
+     and the cumulative count across ~253 jobs blew past the quota almost immediately.
+   - write_disposition = WRITE_TRUNCATE (explicit, not left blank - blank defaults to WRITE_EMPTY
+     which errors if the table already has any rows from a prior partial/failed attempt).
+     create_disposition = CREATE_IF_NEEDED.
+   - Table partitioned by trandate at MONTH granularity (not DAY) - switched from DAY after hitting
+     the quota error; MONTH gives ~96 partitions over 8 years vs ~2,920 for DAY, while still giving
+     meaningful query-pruning benefit for typical month/quarter sales-analysis queries (year would be
+     too coarse for that).
+   - Clustered by recordtype.
+   - IMPORTANT: partitioning cannot be changed on an existing table. Since an earlier failed run
+     (old code, DAY partitioning, per-chunk loads) already created/partially loaded the transaction
+     table (~215-220K rows) before hitting the quota wall, the existing table MUST be deleted
+     (client.delete_table(TABLE_REF, not_found_ok=True)) before rerunning the fixed backfill function,
+     otherwise the new MONTH partitioning config will be ignored/conflict.
+
+2) ONGOING REGULAR REFRESH (NOT YET BUILT)
+   - Decided against pure lastmodifieddate-watermark incremental. Instead: a rolling 2-year window
+     re-pull, based on real data evidence (rows with lastmodifieddate in 2026, grouped by trandate
+     year): 99.46% of edit activity touches transactions dated within the last 2 years (2025+2026);
+     the tail beyond 2 years is real but small (~0.5%, going back as far as 2017).
+   - Every regular run: re-pull the FULL current state of everything with
+     trandate >= (today - 2 years), stage it, then MERGE into the target table:
+       - WHEN MATCHED -> UPDATE (catches edits)
+       - WHEN NOT MATCHED BY SOURCE AND target.trandate >= cutoff_date -> DELETE (catches real
+         deletions within the window - the "AND target.trandate >= cutoff_date" guard is critical,
+         otherwise this would delete all pre-window history too)
+       - WHEN NOT MATCHED -> INSERT (catches new transactions)
+   - This bounds partition touches to a fixed recent window every run (quota-safe, unlike the
+     original id-ordered full-history approach), and self-heals both edits and deletes without
+     needing separate delete-reconciliation logic or watermark state tracking.
+   - Mechanically: load the pulled window into a staging table (WRITE_TRUNCATE, disposable), then
+     run the MERGE as a client.query(...) SQL job - NOT achievable via load_table_from_dataframe's
+     write_disposition parameter alone (no MERGE option there).
+   - No watermark control table needed for this approach (the "today - 2 years" cutoff is computed
+     fresh each run, no state to persist). The earlier lastmodifieddate-watermark design (Option A:
+     derive from MAX(lastmodifieddate) in the target table) was superseded by this rolling-window
+     design and is not needed unless the strategy changes back.
+
+3) QUARTERLY FULL RECONCILIATION (NOT YET BUILT, but no new code needed)
+   - Catches the small (~0.5%) long tail of edits to transactions older than the 2-year rolling
+     window, which (1) never gets touched otherwise.
+   - Just re-run backfill_transaction() itself (full pull, WRITE_TRUNCATE) on a quarterly cadence.
+     Safe quota-wise because it's a single load job, run infrequently (quarterly, not daily).
+   - Chosen over a full-history MERGE-with-delete because it's simpler and already-written, and at
+     quarterly frequency the quota risk is negligible.
+
+NEXT STEPS
+-------------------------------------------------------------------
+- Delete the partially-loaded transaction table, then run the keyset-pagination version of
+  backfill_transaction() (OFFSET-based version is confirmed broken - see general conventions).
+- Run the aggregateItemLocation load (code already written, not yet executed).
+- Build the rolling 2-year window MERGE refresh function for transaction.
+- Wire up scheduling (Airflow/Composer if real task dependencies emerge across the raw -> subject-
+  oriented transform stages discussed; otherwise Cloud Scheduler + Cloud Function for independent
+  full-refresh reference tables).
