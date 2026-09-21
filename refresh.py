@@ -300,7 +300,7 @@ def _get_tl_key_range(where_clause: str, attempts: int = 4):
 
 # ── Pass 1 ────────────────────────────────────────────────────────────────────
 
-def stage_transactionline_pass1(cutoff_str: str = None,
+def stage_transactionline_pass1(cutoff_str: str |None = None,
                                 chunk_size: int = 5000,
                                 n_workers: int = 3,
                                 slice_size: int = 100_000,
@@ -764,7 +764,7 @@ def load_item():
         ),
     )
     job.result()
-    print(f"[item] Loaded {job.output_rows:,} rows → {ITEM_TABLE_REF}  ({time.time()-t0:.0f}s)")
+    print(f"[item] Loaded {job.output_rows:,} rows → {ITEM_TABLE_REF} ")
 
 
 # ── Customer ──────────────────────────────────────────────────────────────────
