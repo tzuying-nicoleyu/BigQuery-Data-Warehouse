@@ -414,43 +414,42 @@ def stage_transactionline_pass1(cutoff_str: str |None = None,
 
 
 # ── Pass 2 ────────────────────────────────────────────────────────────────────
+@timeit
+def stage_transactionline_pass2(
+        cutoff_str: str | None = None,
+        chunk_size: int = 5_000,
+):
+    """Pull lines created BEFORE the cutoff that were edited WITHIN it (the sparse tail).
 
-def stage_transactionline_pass2(cutoff_str: str | None = None, chunk_size: int = 5000):
-    """Pull lines created BEFORE the 2-year window but edited WITHIN it.
+    Sequential keyset pagination -- Pass 2 is sparse (~tens of thousands of rows)
+    so a simple loop is faster and avoids rate-limiting from too many parallel calls.
+    Appends to the staging table -- call this after stage_transactionline_pass1().
 
-    These rows (~5K) are sparse across the full uniquekey range, so a simple
-    serial keyset loop is used. All rows are accumulated in memory and flushed
-    in a single load job. Appends to the staging table (does NOT clear it).
-    Call this after stage_transactionline_pass1().
     """
     if cutoff_str is None:
         cutoff_str = _tl_cutoff()
 
-    t0 = time.time()
     print(f"[Pass 2] cutoff: {cutoff_str}")
-
-    client       = bigquery.Client(project=PROJECT_ID)
-    lock         = threading.Lock()
-    staged_count = [0]
 
     where_clause = (
         f"linelastmodifieddate >= TO_DATE('{cutoff_str}', 'YYYY-MM-DD') "
         f"AND linecreateddate  <  TO_DATE('{cutoff_str}', 'YYYY-MM-DD')"
     )
 
-    buffer   = []
+    print("[Pass 2] Fetching edited-old lines sequentially...")
+    all_chunks = []
     last_key = 0
 
     while True:
-        query = f"""
-            SELECT {', '.join(TL_SELECT_COLUMNS)}
+        q = f"""
+            SELECT {", ".join(TL_SELECT_COLUMNS)}
             FROM transactionline
             WHERE {where_clause}
               AND uniquekey > {last_key}
             ORDER BY uniquekey
             FETCH NEXT {chunk_size} ROWS ONLY
         """
-        df = pull_data_by_sql(query=query, return_df=True)
+        df = pull_data_by_sql(query=q, return_df=True)
         if df is None or df.empty:
             break
 
@@ -459,17 +458,18 @@ def stage_transactionline_pass2(cutoff_str: str | None = None, chunk_size: int =
             if col not in df.columns:
                 df[col] = pd.NA
         df = df[TL_SELECT_COLUMNS]
-
-        buffer.append(df)
+        all_chunks.append(df)
         last_key = int(df["uniquekey"].astype("int64").max())
-        print(f"[Pass 2] pulled to key {last_key}  ({len(df)} rows this page)")
-
+        print(f"[Pass 2] Fetched {sum(len(c) for c in all_chunks):,} rows so far...")
         if len(df) < chunk_size:
             break
 
-    if buffer:
-        flushed = _flush_tl_batch(buffer, client, lock, staged_count)
-        print(f"[Pass 2] Done. Staged {flushed:,} rows  ({time.time()-t0:.0f}s)")
+    if all_chunks:
+        client       = bigquery.Client(project=PROJECT_ID)
+        flush_lock   = threading.Lock()
+        staged_count = [0]
+        flushed = _flush_tl_batch(all_chunks, client, flush_lock, staged_count)
+        print(f"[Pass 2] Done. Staged {flushed:,} rows")
         return flushed
     else:
         print("[Pass 2] No edited-old lines found.")
@@ -533,34 +533,32 @@ def merge_transactionline(cutoff_str: str | None = None):
     print("[MERGE] Running...")
     merge_job = client.query(merge_sql)
     merge_job.result()
+
+    dml_stats = merge_job.dml_stats
+    inserted_count = dml_stats.inserted_row_count if dml_stats is not None else 0
+    updated_count = dml_stats.updated_row_count if dml_stats is not None else 0
+    deleted_count = dml_stats.deleted_row_count if dml_stats is not None else 0
+
     print(f"[MERGE] Done  ({time.time()-t0:.0f}s)")
-    print(f"  Inserted: {merge_job.dml_stats.inserted_row_count:,}")
-    print(f"  Updated:  {merge_job.dml_stats.updated_row_count:,}")
-    print(f"  Deleted:  {merge_job.dml_stats.deleted_row_count:,}")
+    print(f"  Inserted: {inserted_count:,}")
+    print(f"  Updated:  {updated_count:,}")
+    print(f"  Deleted:  {deleted_count:,}")
 
 
 # ── Orchestrator ──────────────────────────────────────────────────────────────
 
 @timeit
-def refresh_transactionline(chunk_size: int = 5000,
-                            n_workers: int = 3,
-                            slice_size: int = 100_000,
-                            flush_every: int = 10):
-    """Run Pass 1 → Pass 2 → MERGE in sequence.
+def refresh_transactionline(full: bool = False):
+    """Pass 1 + MERGE (daily).  Set full=True to also run Pass 2 (monthly).
 
-    Call the individual functions directly to test each step in isolation:
-        stage_transactionline_pass1()
-        stage_transactionline_pass2()
-        merge_transactionline()
+    Daily  : stage_transactionline_pass1 → merge_transactionline
+    Monthly: stage_transactionline_pass1 → stage_transactionline_pass2 → merge_transactionline
     """
-    cutoff_str = _tl_cutoff()
-    t0 = time.time()
-
-    stage_transactionline_pass1(cutoff_str, chunk_size, n_workers, slice_size, flush_every)
-    stage_transactionline_pass2(cutoff_str, chunk_size)
-    merge_transactionline(cutoff_str)
-
-    print(f"refresh_transactionline complete  ({time.time()-t0:.0f}s total)")
+    stage_transactionline_pass1()
+    if full:
+        stage_transactionline_pass2()
+    merge_transactionline()
+    print("refresh_transactionline complete!")
 
 
 
@@ -714,7 +712,7 @@ ITEM_SCHEMA = [
 
 ITEM_TABLE_REF = f"{PROJECT_ID}.{DATASET_ID}.item"
 
-
+@timeit
 def load_item():
     """Full pull → WRITE_TRUNCATE. ~34K rows, twice-daily cadence (new items added frequently).
     Uses generic 'item' table (union of all item types) so transactionline FKs resolve correctly.
@@ -786,12 +784,11 @@ CUSTOMER_SCHEMA = [
 
 CUSTOMER_TABLE_REF = f"{PROJECT_ID}.{DATASET_ID}.customer"
 
-
+@timeit
 def load_customer():
     """Full pull → WRITE_TRUNCATE. ~29K rows, twice-daily cadence.
     Uses 'customer' subtype (not generic 'entity') — transaction.entity joins to customer.id.
     """
-    t0 = time.time()
     print("[customer] Pulling from NetSuite...")
 
     q = """
@@ -828,7 +825,7 @@ def load_customer():
         ),
     )
     job.result()
-    print(f"[customer] Loaded {job.output_rows:,} rows → {CUSTOMER_TABLE_REF}  ({time.time()-t0:.0f}s)")
+    print(f"[customer] Loaded {job.output_rows:,} rows → {CUSTOMER_TABLE_REF}")
 
 
 # ── Transaction Status ────────────────────────────────────────────────────────
@@ -844,10 +841,9 @@ TRANSACTIONSTATUS_SCHEMA = [
 
 TRANSACTIONSTATUS_TABLE_REF = f"{PROJECT_ID}.{DATASET_ID}.transactionstatus"
 
-
+@timeit
 def load_transactionstatus():
     """Full pull → WRITE_TRUNCATE. Small lookup table, monthly/quarterly cadence."""
-    t0 = time.time()
     print("[transactionstatus] Pulling from NetSuite...")
 
     q = """
@@ -877,7 +873,7 @@ def load_transactionstatus():
         ),
     )
     job.result()
-    print(f"[transactionstatus] Loaded {job.output_rows:,} rows → {TRANSACTIONSTATUS_TABLE_REF}  ({time.time()-t0:.0f}s)")
+    print(f"[transactionstatus] Loaded {job.output_rows:,} rows → {TRANSACTIONSTATUS_TABLE_REF} ")
 
 
 
@@ -1022,7 +1018,8 @@ def main():
     import argparse
 
     JOBS = {
-        "transactionline":         refresh_transactionline,
+        "transactionline":         lambda: refresh_transactionline(full=False),
+        "transactionline_full":    lambda: refresh_transactionline(full=True),
         "transaction":             refresh_transaction,
         "item":                    load_item,
         "customer":                load_customer,

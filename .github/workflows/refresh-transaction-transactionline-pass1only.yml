@@ -1,24 +1,24 @@
-name: Refresh — item & customer
+name: Refresh — transactionline
 
 on:
   schedule:
-    - cron: "0 6  * * *"   # 06:00 UTC
-    - cron: "0 18 * * *"   # 18:00 UTC
-  workflow_dispatch:
+    - cron: "0 2 * * *"   # daily at 02:00 UTC
+  workflow_dispatch:       # allow manual trigger from GitHub UI
 
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60    # transactionline takes ~23 min; generous buffer
 
     env:
+      # NetSuite credentials (production)
       REALM:           ${{ secrets.REALM }}
       CONSUMER_KEY:    ${{ secrets.CONSUMER_KEY }}
       CONSUMER_SECRET: ${{ secrets.CONSUMER_SECRET }}
       TOKEN_ID:        ${{ secrets.TOKEN_ID }}
       TOKEN_SECRET:    ${{ secrets.TOKEN_SECRET }}
       ACCOUNT_HOST:    ${{ secrets.ACCOUNT_HOST }}
-
+     
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -37,11 +37,11 @@ jobs:
           echo '${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}' > /tmp/gcp-key.json
           echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp-key.json" >> "$GITHUB_ENV"
 
-      - name: Refresh item
-        run: python refresh.py --job item
-
-      - name: Refresh customer
-        run: python refresh.py --job customer
+      - name: Run transaction
+        run: python refresh.py --job transaction
       
-      - name: Refresh aggregateItemLocation
-        run: python refresh.py --job aggregate_item_location
+      - name: Run transactionline
+        run: python refresh.py --job transactionline
+      
+      
+ 

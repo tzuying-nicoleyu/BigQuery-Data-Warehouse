@@ -1,14 +1,14 @@
-name: Refresh — reference tables
+name: Refresh — transactionline (full, monthly)
 
 on:
   schedule:
-    - cron: "0 0 * * 0"   # weekly, Sunday at 00:00 UTC
-  workflow_dispatch:
+    - cron: "0 2 1 * *"   # 1st of every month at 02:00 UTC
+  workflow_dispatch:       # allow manual trigger from GitHub UI
 
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 120   # Pass 2 adds ~30 min; generous buffer
 
     env:
       REALM:           ${{ secrets.REALM }}
@@ -20,10 +20,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: pip
@@ -36,11 +36,5 @@ jobs:
           echo '${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}' > /tmp/gcp-key.json
           echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp-key.json" >> "$GITHUB_ENV"
 
-      - name: Refresh classification
-        run: python refresh.py --job classification
-
-      - name: Refresh subsidiary
-        run: python refresh.py --job subsidiary
-
-      - name: Refresh transactionstatus
-        run: python refresh.py --job transactionstatus
+      - name: Run full transactionline refresh (Pass 1 + Pass 2 + merge)
+        run: python refresh.py --job transactionline_full
