@@ -176,12 +176,97 @@ STRATEGY - three separate pieces:
    - Chosen over a full-history MERGE-with-delete because it's simpler and already-written, and at
      quarterly frequency the quota risk is negligible.
 
+TABLE: transactionline
+-------------------------------------------------------------------
+Status: REFRESH CODE COMPLETE, tested and running.
+Scale: ~2.6M rows in refresh window (linecreateddate >= cutoff), ~5K rows in edit tail.
+       Full table is larger; only the rolling 2-year window is re-pulled each run.
+
+Strategy: Two-pass stage + MERGE. Cannot use a single lastmodifieddate filter because rows
+          created before the cutoff that were never edited since would disappear from staging
+          and be deleted by the MERGE DELETE guard. Two passes capture the full window correctly.
+
+Rolling window cutoff:
+  cutoff = date.today() - timedelta(days=365 * 2)   # 2-year rolling window
+
+PASS 1 — 2 years window lines (linecreateddate >= cutoff)
+  Volume: ~2.6M rows — dense data, many rows per key slice.
+  Filter: WHERE linecreateddate >= '{cutoff}'
+            AND uniquekey >  {s_start}
+            AND uniquekey <= {s_end}
+          ORDER BY uniquekey
+  The upper bound (uniquekey <= s_end) is mandatory. Without it, NetSuite scans from s_start
+  to end of table (O(table)). With it, NetSuite uses an index range scan (O(slice)).
+  Same two-sided bound strategy as load_year() in bigquery.ipynb.
+  Execution: 3 concurrent worker threads drain a shared queue.Queue of 100K-key slices.
+             MIN/MAX uniquekey queried first to build the slice list.
+             Each worker owns its own bigquery.Client (avoids thread contention).
+             Failed slices requeued from last successfully flushed key (up to 3 retries).
+             flush_every=10 (50K rows per flush) to stay under BigQuery load job rate limits.
+  Pass 1 CLEARS the staging table before starting (WRITE_TRUNCATE first load, WRITE_APPEND after).
+
+PASS 2 — Edited old lines (linelastmodifieddate >= cutoff AND linecreateddate < cutoff)
+  Volume: ~5K rows — sparse data, only 2-3 rows per 100K-key slice.
+  Filter: WHERE linelastmodifieddate >= '{cutoff}'
+            AND linecreateddate < '{cutoff}'
+            AND uniquekey > {last_key}
+          ORDER BY uniquekey
+  Cannot use slice approach here: each 100K-key slice yields 2-3 rows, producing hundreds of
+  tiny BigQuery load jobs which immediately hit 429 TooManyRequests rate limits.
+  Execution: serial keyset loop, accumulates ALL pages into a buffer, single WRITE_APPEND
+             load job at the end. Total ~5K rows fits comfortably in memory.
+  Pass 2 APPENDS to staging (does not clear it — Pass 1 data must be preserved).
+
+BigQuery 429 rate limit handling (both passes):
+  _flush_tl_batch catches TooManyRequests and retries with exponential backoff:
+  wait = 15s × 2^attempt  (15s, 30s, 60s, 120s, 240s, then raise on 6th failure)
+  flush_every=10 reduces total concurrent load jobs across the 3 workers.
+
+MERGE (merge_transactionline):
+  Runs after both passes complete. Uses a deduplication subquery in the USING clause
+  because a row with both linecreateddate >= cutoff AND linelastmodifieddate >= cutoff
+  appears in both Pass 1 and Pass 2, causing duplicate uniquekeys in staging.
+  BigQuery raises "UPDATE/MERGE must match at most one source row" without dedup.
+
+  MERGE `transactionline` AS T
+  USING (
+      SELECT * EXCEPT (rn)
+      FROM (
+          SELECT *, ROW_NUMBER() OVER (PARTITION BY uniquekey ORDER BY _loaded_at DESC) AS rn
+          FROM `transactionline_staging`
+      )
+      WHERE rn = 1
+  ) AS S
+  ON T.uniquekey = S.uniquekey
+  WHEN MATCHED THEN UPDATE SET <all columns>
+  WHEN NOT MATCHED BY TARGET THEN INSERT <all columns>
+  WHEN NOT MATCHED BY SOURCE
+       AND T.linecreateddate >= DATE '{cutoff}' THEN DELETE
+
+  DELETE guard: only rows where linecreateddate >= cutoff are eligible for deletion.
+  Rows created before the cutoff that were deleted in NetSuite are NOT caught — accepted
+  limitation, same as transaction table refresh.
+
+  WARNING: if staging is incomplete (either pass failed partway), the DELETE guard will
+  remove target rows that are missing from staging. Always verify staged row count before
+  running merge_transactionline().
+
+Functions in refresh.py (callable independently for testing):
+  stage_transactionline_pass1()   # dense, concurrent workers, clears staging
+  stage_transactionline_pass2()   # sparse, serial accumulate-all, appends to staging
+  merge_transactionline()         # deduplicated MERGE — verify staging first
+  refresh_transactionline()       # orchestrator: pass1 -> pass2 -> merge
+
+Columns: uniquekey, id, transaction, item, itemtype, quantity, rate, netamount, foreignamount,
+         linesequencenumber, mainline, fulfillable, location, subsidiary, entity, shipmethod,
+         createdfrom, linecreateddate, linelastmodifieddate, quantitycommitted,
+         quantitybackordered, quantitybilled, quantityshiprecv, quantitypicked, isclosed,
+         isfullyshipped, closedate, duedate, expectedshipdate, actualshipdate, _loaded_at
+
+
 NEXT STEPS
 -------------------------------------------------------------------
-- Delete the partially-loaded transaction table, then run the keyset-pagination version of
-  backfill_transaction() (OFFSET-based version is confirmed broken - see general conventions).
 - Run the aggregateItemLocation load (code already written, not yet executed).
-- Build the rolling 2-year window MERGE refresh function for transaction.
 - Wire up scheduling (Airflow/Composer if real task dependencies emerge across the raw -> subject-
   oriented transform stages discussed; otherwise Cloud Scheduler + Cloud Function for independent
   full-refresh reference tables).

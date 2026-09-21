@@ -1,0 +1,45 @@
+name: Refresh — reference tables
+
+on:
+  schedule:
+    - cron: "0 0 * * 0"   # weekly, Sunday at 00:00 UTC
+  workflow_dispatch:
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      REALM:           ${{ secrets.REALM }}
+      CONSUMER_KEY:    ${{ secrets.CONSUMER_KEY }}
+      CONSUMER_SECRET: ${{ secrets.CONSUMER_SECRET }}
+      TOKEN_ID:        ${{ secrets.TOKEN_ID }}
+      TOKEN_SECRET:    ${{ secrets.TOKEN_SECRET }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Authenticate to Google Cloud
+        run: |
+          echo '${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}' > /tmp/gcp-key.json
+          echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp-key.json" >> "$GITHUB_ENV"
+
+      - name: Refresh classification
+        run: python refresh.py --job classification
+
+      - name: Refresh subsidiary
+        run: python refresh.py --job subsidiary
+
+      - name: Refresh transactionstatus
+        run: python refresh.py --job transactionstatus

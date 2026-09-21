@@ -1,0 +1,46 @@
+name: Refresh — item & customer
+
+on:
+  schedule:
+    - cron: "0 6  * * *"   # 06:00 UTC
+    - cron: "0 18 * * *"   # 18:00 UTC
+  workflow_dispatch:
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      REALM:           ${{ secrets.REALM }}
+      CONSUMER_KEY:    ${{ secrets.CONSUMER_KEY }}
+      CONSUMER_SECRET: ${{ secrets.CONSUMER_SECRET }}
+      TOKEN_ID:        ${{ secrets.TOKEN_ID }}
+      TOKEN_SECRET:    ${{ secrets.TOKEN_SECRET }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Authenticate to Google Cloud
+        run: |
+          echo '${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}' > /tmp/gcp-key.json
+          echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp-key.json" >> "$GITHUB_ENV"
+
+      - name: Refresh item
+        run: python refresh.py --job item
+
+      - name: Refresh customer
+        run: python refresh.py --job customer
+      
+      - name: Refresh customer
+        run: python refresh.py --job aggregate_item_location

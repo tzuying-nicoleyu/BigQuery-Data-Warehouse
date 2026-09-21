@@ -72,7 +72,7 @@ def _load_env():
         if path.exists():
             load_dotenv(path, override=True)
             return 
-    raise FileNotFoundError("Please check if .env is in the folder.")
+    # No .env found — fall back to environment variables (e.g. GitHub Actions / Cloud Run).
 
 def _get_credentials(sandbox: bool) -> dict:
     """
@@ -181,7 +181,7 @@ def _to_csv(df: pd.DataFrame, file_name:str, report=print):
 
 # ── main entry point ─────────────────────────────────────────────────────────
 
-def pull_data_by_sql(sandbox=False, query="", file_name="output.csv", return_df=False, on_progress=None):
+def pull_data_by_sql(sandbox=False, query="", file_name="output.csv", return_df=False, on_progress=None)-> pd.DataFrame|None :
     """
     Run a SuiteQL query.
 
