@@ -1,4 +1,4 @@
-name: Refresh — transactionline
+name: Refresh — transaction, transactionline (pass 1 only)
 
 on:
   schedule:

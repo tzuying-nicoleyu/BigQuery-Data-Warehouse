@@ -1,4 +1,4 @@
-name: Refresh — reference tables
+name: Refresh — reference tables (classfication, subsidiary, transactionstatus)
 
 on:
   schedule:
