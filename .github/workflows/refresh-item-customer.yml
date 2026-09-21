@@ -43,5 +43,5 @@ jobs:
       - name: Refresh customer
         run: python refresh.py --job customer
       
-      - name: Refresh customer
+      - name: Refresh aggregateItemLocation
         run: python refresh.py --job aggregate_item_location

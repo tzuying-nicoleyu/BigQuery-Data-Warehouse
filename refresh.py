@@ -908,47 +908,78 @@ AGGREGATE_ITEM_LOCATION_TABLE_REF = f"{PROJECT_ID}.{DATASET_ID}.aggregateItemLoc
 
 
 @timeit
-def load_aggregate_item_location(chunk_size: int = 5000):
-    """Full pull via keyset pagination -> WRITE_TRUNCATE.
-    Clustered on location.  Call on-demand before reorder-point jobs."""
-    print("[aggregateItemLocation] Pulling from NetSuite...")
+def load_aggregate_item_location(n_workers: int = 3, slice_size: int = 50_000, page_size: int = 5_000):
+    """Concurrent bounded-slice pull -> WRITE_TRUNCATE. Clustered on location.
+    Splits the item ID range into independent slices and runs n_workers threads
+    in parallel — same strategy as stage_transactionline_pass1."""
+    print("[aggregateItemLocation] Querying item key range...")
 
-    client        = bigquery.Client(project=PROJECT_ID)
-    all_chunks    = []
-    last_item, last_location = 0, 0
+    q = "SELECT MIN(item) AS mn, MAX(item) AS mx FROM aggregateItemLocation"
+    rng = pull_data_by_sql(query = q, return_df=True)
+    if rng is None or rng.empty:
+        return
+    item_min = int(rng["mn"].iloc[0])
+    item_max = int(rng["mx"].iloc[0])
+    print(f"[aggregateItemLocation] item range: {item_min:,} – {item_max:,}")
 
-    while True:
-        query = f"""
-            SELECT item, location,
-                   quantityavailable, quantityonhand, quantityintransit,
-                   quantitycommitted, quantitybackordered, quantityonorder,
-                   averagecostmli, lastpurchasepricemli, onhandvaluemli,
-                   reorderpoint, safetystocklevel, preferredstocklevel,
-                   leadtime, lastquantityavailablechange, lastmodifieddate
-            FROM aggregateItemLocation
-            WHERE item > {last_item}
-               OR (item = {last_item} AND location > {last_location})
-            ORDER BY item, location
-            FETCH NEXT {chunk_size} ROWS ONLY
-        """
-        df = pull_data_by_sql(query=query, return_df=True)
+    # Build non-overlapping slices on item ID
+    slices = []
+    s = item_min - 1
+    while s < item_max:
+        slices.append((s, min(s + slice_size, item_max)))
+        s += slice_size
 
-        if df is None or df.empty:
-            print("[aggregateItemLocation] Load complete (empty page).")
-            break
+    work_q = queue.Queue()
+    for sl in slices:
+        work_q.put(sl)
+    print(f"[aggregateItemLocation] {len(slices)} slices, {n_workers} workers")
 
-        all_chunks.append(df)
-        last_row      = df.iloc[-1]
-        last_item     = int(last_row["item"])
-        last_location = int(last_row["location"]) if pd.notna(last_row["location"]) else last_location
-        print(f"[aggregateItemLocation] ... item={last_item}, loc={last_location}  ({len(df)} rows)")
+    all_chunks = []
+    lock = threading.Lock()
 
-        if len(df) < chunk_size:
-            print("[aggregateItemLocation] Load complete.")
-            break
+    def worker():
+        while True:
+            try:
+                s_start, s_end = work_q.get_nowait()
+            except queue.Empty:
+                return
+
+            last_item, last_loc = s_start, 0
+            while True:
+                q = f"""
+                    SELECT item, location,
+                           quantityavailable, quantityonhand, quantityintransit,
+                           quantitycommitted, quantitybackordered, quantityonorder,
+                           averagecostmli, lastpurchasepricemli, onhandvaluemli,
+                           reorderpoint, safetystocklevel, preferredstocklevel,
+                           leadtime, lastquantityavailablechange, lastmodifieddate
+                    FROM aggregateItemLocation
+                    WHERE item <= {s_end}
+                      AND (item > {last_item}
+                           OR (item = {last_item} AND location > {last_loc}))
+                    ORDER BY item, location
+                    FETCH NEXT {page_size} ROWS ONLY
+                """
+                df = pull_data_by_sql(query=q, return_df=True)
+                if df is None or df.empty:
+                    break
+                with lock:
+                    all_chunks.append(df)
+                last_row  = df.iloc[-1]
+                last_item = int(last_row["item"])
+                last_loc  = int(last_row["location"]) if pd.notna(last_row["location"]) else last_loc
+                if len(df) < page_size:
+                    break
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=n_workers) as pool:
+        futs = [pool.submit(worker) for _ in range(n_workers)]
+        for f in concurrent.futures.as_completed(futs):
+            f.result()  # re-raises any worker exception immediately
+
+    total = sum(len(c) for c in all_chunks)
+    print(f"[aggregateItemLocation] {total:,} rows collected — casting types...")
 
     full_df = pd.concat(all_chunks, ignore_index=True)
-    print(f"[aggregateItemLocation] {len(full_df):,} rows total -- casting types...")
 
     full_df["item"]     = pd.to_numeric(full_df["item"],     errors="raise").astype("Int64")
     full_df["location"] = pd.to_numeric(full_df["location"], errors="coerce").astype("Int64")
@@ -970,6 +1001,7 @@ def load_aggregate_item_location(chunk_size: int = 5000):
     )
     full_df["_loaded_at"] = pd.Timestamp.now(tz="UTC")
 
+    client = bigquery.Client(project=PROJECT_ID)
     job = client.load_table_from_dataframe(
         full_df, AGGREGATE_ITEM_LOCATION_TABLE_REF,
         job_config=bigquery.LoadJobConfig(
