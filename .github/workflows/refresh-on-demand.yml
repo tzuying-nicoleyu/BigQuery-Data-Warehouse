@@ -30,6 +30,7 @@ jobs:
       CONSUMER_SECRET: ${{ secrets.CONSUMER_SECRET }}
       TOKEN_ID:        ${{ secrets.TOKEN_ID }}
       TOKEN_SECRET:    ${{ secrets.TOKEN_SECRET }}
+      ACCOUNT_HOST:    ${{ secrets.ACCOUNT_HOST }}
 
     steps:
       - name: Checkout
