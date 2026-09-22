@@ -33,27 +33,54 @@ GENERAL CONVENTIONS (apply to every table unless noted otherwise)
   pandas .is_monotonic_increasing / sort comparisons directly on these columns - "10000" < "9999"
   lexicographically even though 10000 > 9999 numerically. Cast to a numeric dtype first.
 
+FILE STRUCTURE
+-------------------------------------------------------------------
+BigQuery Pipeline/
+├── refresh.py               # All incremental refresh functions + orchestrators
+├── backfill.py              # Full historical loads (run manually / disaster recovery)
+├── extract_from_netsuite.py # NetSuite OAuth + SuiteQL client
+├── wrapper.py               # @timeit decorator and shared utilities
+├── requirements.txt
+├── .github/workflows/
+│   ├── refresh-transaction-transactionline.yml  # daily 02:00 UTC
+│   ├── refresh-item-customer.yml                # twice daily 06:00 + 18:00 UTC
+│   ├── refresh-reference.yml                    # weekly Sunday 00:00 UTC
+│   ├── refresh-transactionline-full.yml         # monthly 1st 02:00 UTC (Pass 2 included)
+│   └── refresh-on-demand.yml                    # manual trigger via GitHub UI
+└── .venv/
+
 TABLE: classification
 -------------------------------------------------------------------
-Status: LOADED (178 rows)
+Status: LOADED (178 rows) | Refresh: weekly (GitHub Actions)
 Strategy: Full pull, WRITE_TRUNCATE, CREATE_IF_NEEDED. No partitioning (small reference table).
 Reasoning: small + low change frequency; full truncate/reload also auto-handles deletes.
+Function: load_classification() in refresh.py
 Columns: id, name, parent, fullname, isinactive, subsidiary, lastmodifieddate, _loaded_at
 
 TABLE: subsidiary
 -------------------------------------------------------------------
-Status: LOADED (70 rows)
+Status: LOADED (70 rows) | Refresh: weekly (GitHub Actions)
 Strategy: Full pull, WRITE_TRUNCATE, CREATE_IF_NEEDED. No partitioning.
+Function: load_subsidiary() in refresh.py
 Columns: id, name, fullname, parent, legalname, custrecordcustom_practice_code, isinactive,
          dropdownstate, mainaddress, mainaddress_text (via BUILTIN.DF), lastmodifieddate, _loaded_at
 Notes: mainaddress_text may contain embedded \r\n / \n line breaks - left as-is (not normalized).
 
+TABLE: transactionstatus
+-------------------------------------------------------------------
+Status: LOADED (324 rows) | Refresh: weekly (GitHub Actions)
+Strategy: Full pull, WRITE_TRUNCATE, CREATE_IF_NEEDED. No partitioning.
+Function: load_transactionstatus() in refresh.py
+Columns: id, trantype, name, fullname, friendlykey, _loaded_at
+Notes: id is STRING here (composite key with trantype), not INTEGER like other tables.
+
 TABLE: item
 -------------------------------------------------------------------
-Status: LOADED (34,604 rows)
+Status: LOADED (34,604 rows) | Refresh: twice daily (GitHub Actions)
 Strategy: Full pull, WRITE_TRUNCATE, CREATE_IF_NEEDED. No partitioning.
 Reasoning: used generic "item" table (union of ALL item types) instead of "inventoryitem" subtype,
            because transactionline can reference any item type, not just inventory-tracked ones.
+Function: load_item() in refresh.py
 Columns: id, fullname, itemtype, upccode, mpn, displayname, vendorname, purchaseunit, parent, class,
          subsidiary, custitemcustitem_dnd_brand, manufacturer, averagecost, cost, lastpurchaseprice,
          costingmethoddisplay, autoleadtime, autoreorderpoint, autopreferredstocklevel,
@@ -64,209 +91,145 @@ Notes: averagecost/cost/lastpurchaseprice are FLOAT (not NUMERIC - see general c
 
 TABLE: aggregateItemLocation
 -------------------------------------------------------------------
-Status: SCHEMA/LOAD CODE WRITTEN, not yet run. 348,465 rows total (checked live).
+Status: LOADED (~348K rows) | Refresh: on-demand via GitHub Actions (workflow_dispatch)
 Purpose: per-location stock/reorder metrics. NOT available on inventoryitem directly - lives in
          this separate table because stock is tracked per-location.
-Strategy: Full pull, WRITE_TRUNCATE, CREATE_IF_NEEDED. No partitioning (current-snapshot table,
-          not a time series - similar to item/customer, just larger). Paginate extraction with
-          ORDER BY item, location (no single "id" column - item+location is the natural composite
-          key), accumulate all pages, single load job.
+Strategy: Full pull, WRITE_TRUNCATE, CREATE_IF_NEEDED. No partitioning (current-snapshot table).
+          Bounded-slice concurrent pagination: pre-fetch MIN/MAX item, divide into 50K-item slices,
+          3 workers drain in parallel. Runtime ~3 min (vs ~263s sequential).
+Function: load_aggregate_item_location() in refresh.py
 Columns: item, location, quantityavailable, quantityonhand, quantityintransit, quantitycommitted,
          quantitybackordered, quantityonorder, averagecostmli, lastpurchasepricemli,
          onhandvaluemli, reorderpoint, safetystocklevel, preferredstocklevel, leadtime,
          lastquantityavailablechange, lastmodifieddate, _loaded_at
-Notes: quantity/cost fields cast to FLOAT (not NUMERIC/INTEGER - quantities can be fractional
-       depending on unit of measure). lastquantityavailablechange and lastmodifieddate are
-       date-only despite the name - cast to DATE, not TIMESTAMP (same as every other NetSuite
-       date field in this pipeline). All the numeric fields come back null together (not 0) for
-       item+location combos where the item isn't actually stocked at that location.
+Notes: quantity/cost fields cast to FLOAT. lastquantityavailablechange and lastmodifieddate are
+       DATE not TIMESTAMP. Null quantities = item not stocked at that location (not zero).
+       Clustered by location.
 
 TABLE: customer
 -------------------------------------------------------------------
-Status: LOADED (29,518 rows)
+Status: LOADED (29,518 rows) | Refresh: twice daily (GitHub Actions)
 Strategy: Full pull, WRITE_TRUNCATE, CREATE_IF_NEEDED. No partitioning.
-Reasoning: used "customer" (subtype-specific) instead of generic "entity" table (union of
-           customers/vendors/employees/etc.) since sales analysis only needs customers.
-           Confirmed transaction.entity joins directly to customer.id.
+Reasoning: used "customer" (subtype-specific) instead of generic "entity" table since sales
+           analysis only needs customers. Confirmed transaction.entity joins to customer.id.
+Function: load_customer() in refresh.py
 Columns: id, fullname, category, currency, email, entityid, entitystatus, isinactive, entitytitle,
          datecreated, lastmodifieddate, _loaded_at
-Notes: category/currency/entitystatus are unjoined reference IDs (not names).
 
 TABLE: transaction
 -------------------------------------------------------------------
-Status: IN PROGRESS - one-time backfill code written and fixed, not yet successfully completed.
-Scale: ~1.26M rows total, growing continuously. Different strategy from the reference tables above.
+Status: COMPLETE | Refresh: daily 02:00 UTC (GitHub Actions)
+Scale: ~1.26M rows total, growing continuously.
 
-Columns: id, tranid, transactionnumber, status, recordType, entity, employee, tranDate, createdDate,
+Columns: id, tranid, transactionnumber, status, type, entity, employee, tranDate, createdDate,
          closeDate, lastmodifieddate, _loaded_at
 Notes on columns:
   - tranid is NULL for several transaction types (Check, VendPymt, CardChrg, CardRfnd, VendBill,
-    VendCred, CustRfnd) - these don't use NetSuite's generic document-number field.
-  - transactionnumber is more reliably populated (e.g. "CHECK70644") even when tranid is null -
-    use it as the fallback human-readable reference.
-  - internal id (id) is the only universal identifier across all transaction types; also the only
-    reliable way to look a record up directly in the NetSuite UI when tranid is null
-    (URL pattern: https://<account>.app.netsuite.com/app/accounting/transactions/<type>.nl?id=<id>).
-  - entity: integer, nullable. Generic counterparty pointer, null for types with no counterparty
-    (e.g. journal entries). Confirmed transaction.entity joins directly to customer.id for
-    salesorder-type transactions; for other transaction types it may point to a vendor/other
-    entity subtype instead (no vendor table loaded in this pipeline yet).
-  - employee: integer, nullable. Reference to an employee record - no employee table loaded in
-    this pipeline yet, so this stays an unjoined ID for now.
+    VendCred, CustRfnd) - use transactionnumber as fallback human-readable reference.
+  - entity: nullable, joins to customer.id for sales transactions; may point to vendor/other
+    entity for other types. No vendor table loaded yet.
+  - employee: nullable, unjoined ID - no employee table loaded yet.
 
-STRATEGY - three separate pieces:
+STRATEGY:
 
-1) ONE-TIME HISTORICAL BACKFILL (backfill_transaction() function)
-   - Paginate from NetSuite via KEYSET pagination: "WHERE id > :last_id ORDER BY id FETCH NEXT
-     <chunk_size> ROWS ONLY" (chunk_size=5000), tracking last_id = max(id) of the previous page
-     (cast to int64 first - id comes back as a string). Loop until a page returns fewer rows than
-     chunk_size, or an empty page.
-   - Originally implemented with "OFFSET n ROWS FETCH NEXT ... ROWS ONLY" instead - switched away
-     from this after discovering NetSuite silently wraps OFFSET around past some internal ceiling
-     (see general conventions above) which caused the backfill to loop indefinitely re-pulling
-     duplicate data from the beginning of the table without ever detecting completion.
-   - Accumulate ALL pages into one combined DataFrame (pd.concat) - do NOT load each page to
-     BigQuery separately. Do ONE single load_table_from_dataframe call for the whole backfill.
-     Reason: hit BigQuery's "partition modifications per column-partitioned table per day" quota
-     (documented ~5,000/day) when doing per-chunk loads, because id-ordered chunks scatter across
-     many different date partitions - each small load job touched a huge number of partitions,
-     and the cumulative count across ~253 jobs blew past the quota almost immediately.
-   - write_disposition = WRITE_TRUNCATE (explicit, not left blank - blank defaults to WRITE_EMPTY
-     which errors if the table already has any rows from a prior partial/failed attempt).
-     create_disposition = CREATE_IF_NEEDED.
-   - Table partitioned by trandate at MONTH granularity (not DAY) - switched from DAY after hitting
-     the quota error; MONTH gives ~96 partitions over 8 years vs ~2,920 for DAY, while still giving
-     meaningful query-pruning benefit for typical month/quarter sales-analysis queries (year would be
-     too coarse for that).
-   - Clustered by recordtype.
-   - IMPORTANT: partitioning cannot be changed on an existing table. Since an earlier failed run
-     (old code, DAY partitioning, per-chunk loads) already created/partially loaded the transaction
-     table (~215-220K rows) before hitting the quota wall, the existing table MUST be deleted
-     (client.delete_table(TABLE_REF, not_found_ok=True)) before rerunning the fixed backfill function,
-     otherwise the new MONTH partitioning config will be ignored/conflict.
+1) ONGOING DAILY REFRESH (refresh_transaction() in refresh.py)
+   Rolling 2-year window MERGE refresh. Every run:
+   a. Pull all transactions WHERE trandate >= today - 2 years (keyset pagination, chunk_size=5000)
+   b. Load into transaction_staging (WRITE_TRUNCATE)
+   c. MERGE staging -> target:
+      - WHEN MATCHED -> UPDATE (catches edits)
+      - WHEN NOT MATCHED BY TARGET -> INSERT (catches new transactions)
+      - WHEN NOT MATCHED BY SOURCE AND T.trandate >= cutoff -> DELETE (guarded, window only)
+   Partitioned by trandate (MONTH granularity), clustered by type.
 
-2) ONGOING REGULAR REFRESH (NOT YET BUILT)
-   - Decided against pure lastmodifieddate-watermark incremental. Instead: a rolling 2-year window
-     re-pull, based on real data evidence (rows with lastmodifieddate in 2026, grouped by trandate
-     year): 99.46% of edit activity touches transactions dated within the last 2 years (2025+2026);
-     the tail beyond 2 years is real but small (~0.5%, going back as far as 2017).
-   - Every regular run: re-pull the FULL current state of everything with
-     trandate >= (today - 2 years), stage it, then MERGE into the target table:
-       - WHEN MATCHED -> UPDATE (catches edits)
-       - WHEN NOT MATCHED BY SOURCE AND target.trandate >= cutoff_date -> DELETE (catches real
-         deletions within the window - the "AND target.trandate >= cutoff_date" guard is critical,
-         otherwise this would delete all pre-window history too)
-       - WHEN NOT MATCHED -> INSERT (catches new transactions)
-   - This bounds partition touches to a fixed recent window every run (quota-safe, unlike the
-     original id-ordered full-history approach), and self-heals both edits and deletes without
-     needing separate delete-reconciliation logic or watermark state tracking.
-   - Mechanically: load the pulled window into a staging table (WRITE_TRUNCATE, disposable), then
-     run the MERGE as a client.query(...) SQL job - NOT achievable via load_table_from_dataframe's
-     write_disposition parameter alone (no MERGE option there).
-   - No watermark control table needed for this approach (the "today - 2 years" cutoff is computed
-     fresh each run, no state to persist). The earlier lastmodifieddate-watermark design (Option A:
-     derive from MAX(lastmodifieddate) in the target table) was superseded by this rolling-window
-     design and is not needed unless the strategy changes back.
-
-3) QUARTERLY FULL RECONCILIATION (NOT YET BUILT, but no new code needed)
-   - Catches the small (~0.5%) long tail of edits to transactions older than the 2-year rolling
-     window, which (1) never gets touched otherwise.
-   - Just re-run backfill_transaction() itself (full pull, WRITE_TRUNCATE) on a quarterly cadence.
-     Safe quota-wise because it's a single load job, run infrequently (quarterly, not daily).
-   - Chosen over a full-history MERGE-with-delete because it's simpler and already-written, and at
-     quarterly frequency the quota risk is negligible.
+2) FULL HISTORICAL BACKFILL / DISASTER RECOVERY (backfill_transaction() in backfill.py)
+   Full WRITE_TRUNCATE load of all transactions, single load job to avoid partition quota issues.
+   Run manually: python backfill.py --job backfill_transaction
+   Use for: initial load, disaster recovery, or quarterly full reconciliation of the
+   ~0.5% long tail of edits to transactions older than the 2-year rolling window.
 
 TABLE: transactionline
 -------------------------------------------------------------------
-Status: REFRESH CODE COMPLETE, tested and running.
-Scale: ~2.6M rows in refresh window (linecreateddate >= cutoff), ~5K rows in edit tail.
-       Full table is larger; only the rolling 2-year window is re-pulled each run.
+Status: COMPLETE | Refresh: daily + monthly full (GitHub Actions)
+Scale: ~2.6M rows in refresh window; ~7.9M rows total (2018-2026).
 
-Strategy: Two-pass stage + MERGE. Cannot use a single lastmodifieddate filter because rows
-          created before the cutoff that were never edited since would disappear from staging
-          and be deleted by the MERGE DELETE guard. Two passes capture the full window correctly.
+Columns: uniquekey, transaction, item, itemtype, accountinglinetype, expenseaccount,
+         inventorylocation, netamount, costestimate, rate, price, quantity,
+         quantitybackordered, createdfrom, memo, mainline, taxline,
+         custcolfree_goods_checkbox, linecreateddate, linelastmodifieddate, _loaded_at
 
-Rolling window cutoff:
-  cutoff = date.today() - timedelta(days=365 * 2)   # 2-year rolling window
+STRATEGY — three separate pieces:
 
-PASS 1 — 2 years window lines (linecreateddate >= cutoff)
-  Volume: ~2.6M rows — dense data, many rows per key slice.
-  Filter: WHERE linecreateddate >= '{cutoff}'
-            AND uniquekey >  {s_start}
-            AND uniquekey <= {s_end}
-          ORDER BY uniquekey
-  The upper bound (uniquekey <= s_end) is mandatory. Without it, NetSuite scans from s_start
-  to end of table (O(table)). With it, NetSuite uses an index range scan (O(slice)).
-  Same two-sided bound strategy as load_year() in bigquery.ipynb.
-  Execution: 3 concurrent worker threads drain a shared queue.Queue of 100K-key slices.
-             MIN/MAX uniquekey queried first to build the slice list.
-             Each worker owns its own bigquery.Client (avoids thread contention).
-             Failed slices requeued from last successfully flushed key (up to 3 retries).
-             flush_every=10 (50K rows per flush) to stay under BigQuery load job rate limits.
-  Pass 1 CLEARS the staging table before starting (WRITE_TRUNCATE first load, WRITE_APPEND after).
+1) DAILY REFRESH (refresh_transactionline(full=False) in refresh.py)
+   Pass 1 + MERGE only. Catches all new rows created within the rolling 2-year window.
+   Command: python refresh.py --job transactionline
+   Schedule: daily 02:00 UTC (after transaction refresh completes)
 
-PASS 2 — Edited old lines (linelastmodifieddate >= cutoff AND linecreateddate < cutoff)
-  Volume: ~5K rows — sparse data, only 2-3 rows per 100K-key slice.
-  Filter: WHERE linelastmodifieddate >= '{cutoff}'
-            AND linecreateddate < '{cutoff}'
-            AND uniquekey > {last_key}
-          ORDER BY uniquekey
-  Cannot use slice approach here: each 100K-key slice yields 2-3 rows, producing hundreds of
-  tiny BigQuery load jobs which immediately hit 429 TooManyRequests rate limits.
-  Execution: serial keyset loop, accumulates ALL pages into a buffer, single WRITE_APPEND
-             load job at the end. Total ~5K rows fits comfortably in memory.
-  Pass 2 APPENDS to staging (does not clear it — Pass 1 data must be preserved).
+2) MONTHLY FULL REFRESH (refresh_transactionline(full=True) in refresh.py)
+   Pass 1 + Pass 2 + MERGE. Catches new rows AND old rows edited within the window.
+   Command: python refresh.py --job transactionline_full
+   Schedule: 1st of every month 02:00 UTC
 
-BigQuery 429 rate limit handling (both passes):
-  _flush_tl_batch catches TooManyRequests and retries with exponential backoff:
-  wait = 15s × 2^attempt  (15s, 30s, 60s, 120s, 240s, then raise on 6th failure)
-  flush_every=10 reduces total concurrent load jobs across the 3 workers.
+   PASS 1 — New lines (linecreateddate >= cutoff) — ~2.6M rows, DENSE
+     Filter: WHERE linecreateddate >= '{cutoff}'
+               AND uniquekey >  {s_start}
+               AND uniquekey <= {s_end}
+             ORDER BY uniquekey
+     Upper bound (uniquekey <= s_end) is mandatory — makes NetSuite use O(slice) index range
+     scan instead of O(table) full scan.
+     Execution: 3 concurrent workers drain a shared queue.Queue of 100K-key slices.
+                MIN/MAX uniquekey pre-fetched to scope the slice list.
+                Failed slices requeued from last successfully flushed key (up to 3 retries).
+     Pass 1 CLEARS staging before starting.
 
-MERGE (merge_transactionline):
-  Runs after both passes complete. Uses a deduplication subquery in the USING clause
-  because a row with both linecreateddate >= cutoff AND linelastmodifieddate >= cutoff
-  appears in both Pass 1 and Pass 2, causing duplicate uniquekeys in staging.
-  BigQuery raises "UPDATE/MERGE must match at most one source row" without dedup.
+   PASS 2 — Edited old lines (linelastmodifieddate >= cutoff AND linecreateddate < cutoff) — ~19K rows, SPARSE
+     Filter: WHERE linelastmodifieddate >= '{cutoff}'
+               AND linecreateddate < '{cutoff}'
+               AND uniquekey > {last_key}
+             ORDER BY uniquekey
+     IMPORTANT: Do NOT use bounded-slice concurrency here. The uniquekey range spans ~13M keys
+     for only ~19K rows (~2 rows per 100K-key slice). Concurrent slices produce hundreds of
+     tiny BigQuery load jobs and trigger 429 rate limits immediately.
+     Execution: serial keyset loop, all pages accumulated in memory, single WRITE_APPEND at end.
+                ~4 API calls total at chunk_size=5000. Slower per-call (~35s/call) due to
+                two-condition WHERE clause; accepted as a monthly-only cost.
+     Pass 2 APPENDS to staging (does not clear it).
 
-  MERGE `transactionline` AS T
-  USING (
-      SELECT * EXCEPT (rn)
-      FROM (
-          SELECT *, ROW_NUMBER() OVER (PARTITION BY uniquekey ORDER BY _loaded_at DESC) AS rn
-          FROM `transactionline_staging`
-      )
-      WHERE rn = 1
-  ) AS S
-  ON T.uniquekey = S.uniquekey
-  WHEN MATCHED THEN UPDATE SET <all columns>
-  WHEN NOT MATCHED BY TARGET THEN INSERT <all columns>
-  WHEN NOT MATCHED BY SOURCE
-       AND T.linecreateddate >= DATE '{cutoff}' THEN DELETE
+   MERGE (merge_transactionline):
+     Deduplication subquery required — a row with both linecreateddate >= cutoff AND
+     linelastmodifieddate >= cutoff appears in both passes, causing BigQuery
+     "MERGE must match at most one source row" error without it.
+     DELETE guard: only rows where linecreateddate >= cutoff are eligible for deletion.
+     WARNING: verify staged row count before running merge — incomplete staging + DELETE
+     guard = data loss.
 
-  DELETE guard: only rows where linecreateddate >= cutoff are eligible for deletion.
-  Rows created before the cutoff that were deleted in NetSuite are NOT caught — accepted
-  limitation, same as transaction table refresh.
+3) FULL HISTORICAL BACKFILL / DISASTER RECOVERY (backfill_transactionline() in backfill.py)
+   Drops and recreates table, then loads year by year (WRITE_APPEND after first year).
+   Each year uses concurrent bounded-slice workers (same as Pass 1).
+   Verifies BigQuery row count vs NetSuite count after each year.
+   Historical row counts (as of Sept 2026):
+     2018:  182K | 2019:  833K | 2020: 1.01M | 2021:  907K
+     2022:  864K | 2023:  948K | 2024: 1.06M | 2025: 1.14M | 2026: 972K
+     Total: ~7.9M rows
+   Commands:
+     python backfill.py --job backfill_transactionline           # all years
+     python backfill.py --job backfill_transactionline --years 2025 2026  # specific years
 
-  WARNING: if staging is incomplete (either pass failed partway), the DELETE guard will
-  remove target rows that are missing from staging. Always verify staged row count before
-  running merge_transactionline().
+GITHUB ACTIONS SCHEDULE SUMMARY
+-------------------------------------------------------------------
+Workflow                              | Schedule                  | Jobs
+--------------------------------------|---------------------------|----------------------------
+refresh-transaction-transactionline   | daily 02:00 UTC           | transaction + transactionline
+refresh-item-customer                 | twice daily 06:00 + 18:00 | item, customer
+refresh-reference                     | weekly Sunday 00:00 UTC   | classification, subsidiary, transactionstatus
+refresh-transactionline-full          | monthly 1st 02:00 UTC     | transactionline_full (Pass 1+2+merge)
+refresh-on-demand                     | manual (workflow_dispatch) | any single job via dropdown
 
-Functions in refresh.py (callable independently for testing):
-  stage_transactionline_pass1()   # dense, concurrent workers, clears staging
-  stage_transactionline_pass2()   # sparse, serial accumulate-all, appends to staging
-  merge_transactionline()         # deduplicated MERGE — verify staging first
-  refresh_transactionline()       # orchestrator: pass1 -> pass2 -> merge
-
-Columns: uniquekey, id, transaction, item, itemtype, quantity, rate, netamount, foreignamount,
-         linesequencenumber, mainline, fulfillable, location, subsidiary, entity, shipmethod,
-         createdfrom, linecreateddate, linelastmodifieddate, quantitycommitted,
-         quantitybackordered, quantitybilled, quantityshiprecv, quantitypicked, isclosed,
-         isfullyshipped, closedate, duedate, expectedshipdate, actualshipdate, _loaded_at
-
+Secrets required: REALM, CONSUMER_KEY, CONSUMER_SECRET, TOKEN_ID, TOKEN_SECRET,
+                  ACCOUNT_HOST, GCP_SERVICE_ACCOUNT_KEY
 
 NEXT STEPS
 -------------------------------------------------------------------
-- Run the aggregateItemLocation load (code already written, not yet executed).
-- Wire up scheduling (Airflow/Composer if real task dependencies emerge across the raw -> subject-
-  oriented transform stages discussed; otherwise Cloud Scheduler + Cloud Function for independent
-  full-refresh reference tables).
+- Downstream analytics: top products analysis (query BigQuery, not NetSuite directly).
+- Consider adding transactionline columns: inventorylocation join to subsidiary/location lookup.
+- Vendor table: transaction.entity for non-sales transactions is unjoined - load if needed.
