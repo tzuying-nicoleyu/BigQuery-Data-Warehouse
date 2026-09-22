@@ -1,4 +1,4 @@
-name: Refresh — item & customer
+name: Refresh — item, customer, aggregateItemLocation
 
 on:
   schedule:
